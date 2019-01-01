@@ -20,3 +20,7 @@ To delete an existing stack:
 ```
 $ aws cloudformation delete-stack --stack-name dev-vpc
 ```
+
+## References
+
+- [Building a VPC with CloudFormation - Part 1](https://www.infoq.com/articles/aws-vpc-cloudformation)
