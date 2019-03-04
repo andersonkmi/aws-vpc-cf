@@ -1,0 +1,132 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "The AWS CloudFormation template Adesao CRM",
+
+  "Parameters" : {
+    "S3BucketName" : {
+      "Type" : "String",
+      "Default" : "",
+      "Description" : "Inform the bucket name to be created"
+    },
+    "KinesisDeliveryStream" : {
+        "Type" : "String",
+        "Default" : "",
+        "Description" : "Inform the kinesis delivery stream name to be created"         
+    }
+  },
+
+  "Resources": {
+    "KinesisStreamS3DeliveryLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {"Fn::Join" : [ "", [ "/aws/kinesisfirehose/", { "Ref" : "KinesisDeliveryStream" } ] ]},
+        "RetentionInDays": 30
+      }
+    },
+    "KinesisStreamS3DeliveryLog": {
+      "Type": "AWS::Logs::LogStream",
+      "Properties": {
+        "LogGroupName": {"Fn::Join" : [ "", [ "/aws/kinesisfirehose/", { "Ref" : "KinesisDeliveryStream" } ] ]},
+        "LogStreamName": "S3Delivery"
+      },
+      "DependsOn": ["KinesisStreamS3DeliveryLogGroup"]
+    },
+    "S3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy" : "Retain",
+      "Properties": {
+        "BucketName": { "Ref" : "S3BucketName" },
+        "AccessControl": "Private",
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        }
+      }
+    },
+    "KinesisFirehoseDeliveryStream": {
+      "Type": "AWS::KinesisFirehose::DeliveryStream",
+      "Properties": {
+        "DeliveryStreamName": { "Ref" : "KinesisDeliveryStream" },
+        "DeliveryStreamType": "DirectPut",
+        "S3DestinationConfiguration": {
+          "BucketARN": {"Fn::GetAtt" : ["S3Bucket", "Arn"] },
+          "Prefix": "",
+          "BufferingHints": {
+            "IntervalInSeconds": 60,
+            "SizeInMBs": 100
+          },
+          "CloudWatchLoggingOptions" : {
+            "Enabled" : "true",
+            "LogGroupName": {"Fn::Join" : [ "", [ "/aws/kinesisfirehose/", { "Ref" : "KinesisDeliveryStream" } ] ]},
+            "LogStreamName": "S3Delivery"
+          },
+          "CompressionFormat"        : "GZIP",
+          "EncryptionConfiguration"  : {
+            "NoEncryptionConfig" : "NoEncryption"
+          },
+          "RoleARN": {"Fn::GetAtt": ["FirehoseDeliveryIAMRole", "Arn"]}
+        }
+      },
+      "DependsOn": ["FirehoseDeliveryIAMPolicy", "KinesisStreamS3DeliveryLog"]
+    },
+    "FirehoseDeliveryIAMRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "firehose.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": { "Ref" : "AWS::AccountId" }
+                }
+              }
+            }]
+        }
+      }
+    },
+    "FirehoseDeliveryIAMPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "adesao-crm-kinesis-fh-policy",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:AbortMultipartUpload",
+                "s3:GetBucketLocation",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:ListBucketMultipartUploads",
+                "s3:PutObject"
+              ],
+              "Resource": [
+                {"Fn::GetAtt" : ["S3Bucket", "Arn"] },
+                {"Fn::Join" : [ "", [ {"Fn::GetAtt" : ["S3Bucket", "Arn"] }, "/*" ] ]}
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "logs:PutLogEvents"
+              ],
+              "Resource": [
+                {"Fn::GetAtt" : ["KinesisStreamS3DeliveryLogGroup", "Arn"] }
+              ]
+            }]
+        },
+        "Roles": [{"Ref": "FirehoseDeliveryIAMRole"}]
+      }
+    }
+  }
+}
